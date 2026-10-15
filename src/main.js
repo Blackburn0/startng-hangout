@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import * as platform from './platform.js';
-import { buildHuman, styleFor } from './character.js';
-import { buildPark, SUN_DIR } from './world.js';
+import { buildHuman, buildStatue, styleFor } from './character.js';
+import { buildPark, seatSpot, SUN_DIR } from './world.js';
 import { LiveRoom } from './net.js';
 
 const WALK = 3.2; // metres a second
@@ -44,29 +44,41 @@ function resize() {
 addEventListener('resize', resize);
 resize();
 
-// ---- players ------------------------------------------------------------------
+// ---- people ------------------------------------------------------------------
+// Everyone in the room is a live, moving character that only its owner controls. Everyone else
+// with a seat sits on their bench as a still model until they come in.
 
-const avatars = new Map(); // id -> { human, label, x, z, ry, target, moving }
+const avatars = new Map(); // id -> { human, label, target, moving, name, style, seat }
+const statues = new Map(); // id -> { obj, label }
+const residents = new Map(); // id -> { name, style, seat }: everyone with a seat
+const statueQueue = []; // residents waiting to be built, a few per frame
 let myId = null;
 
-function nameTag(name, isYou) {
+function nameTag(name, kind, height) {
   const el = document.createElement('div');
-  el.className = isYou ? 'tag you' : 'tag';
-  el.textContent = isYou ? `${name} (you)` : name;
+  el.className = `tag ${kind}`;
+  el.textContent = kind === 'you' ? `${name} (you)` : name;
   const tag = new CSS2DObject(el);
-  tag.position.set(0, 2.15, 0);
+  tag.position.set(0, height, 0);
   return tag;
 }
 
 function addAvatar(p) {
   removeAvatar(p.id);
+  removeStatue(p.id);
+  if (p.seat != null) residents.set(p.id, { name: p.name, style: p.style, seat: p.seat });
   const human = buildHuman(p.style ?? styleFor(p.id));
-  const label = nameTag(p.name, p.id === myId);
+  const label = nameTag(p.name, p.id === myId ? 'you' : 'here', 2.15);
   human.root.add(label);
-  human.root.position.set(p.x, 0, p.z);
-  human.root.rotation.y = p.ry;
+  // Not moved yet: standing up in front of their seat (or mid-park if they have none).
+  const spot = p.seat != null ? seatSpot(p.seat) : null;
+  const x = p.x ?? spot?.stand.x ?? 0;
+  const z = p.z ?? spot?.stand.z ?? 0;
+  const ry = p.x != null ? p.ry : spot?.ry ?? 0;
+  human.root.position.set(x, 0, z);
+  human.root.rotation.y = ry;
   scene.add(human.root);
-  avatars.set(p.id, { human, label, target: { x: p.x, z: p.z, ry: p.ry }, moving: p.moving });
+  avatars.set(p.id, { human, label, target: { x, z, ry }, moving: p.moving, name: p.name, style: p.style, seat: p.seat });
 }
 
 function removeAvatar(id) {
@@ -79,13 +91,46 @@ function removeAvatar(id) {
   avatars.delete(id);
 }
 
-function clearAvatars() {
+function seat(id) {
+  if (!avatars.has(id) && !statues.has(id) && residents.has(id)) statueQueue.push(id);
+}
+
+function buildQueuedStatues(max) {
+  for (let i = 0; i < max && statueQueue.length; i++) {
+    const id = statueQueue.shift();
+    const r = residents.get(id);
+    if (!r || avatars.has(id) || statues.has(id)) continue;
+    const obj = buildStatue(r.style ?? styleFor(id));
+    const spot = seatSpot(r.seat);
+    obj.position.copy(spot.sit);
+    obj.rotation.y = spot.ry;
+    const label = nameTag(r.name, 'away', 1.6);
+    obj.add(label);
+    scene.add(obj);
+    statues.set(id, { obj, label });
+  }
+}
+
+function removeStatue(id) {
+  const s = statues.get(id);
+  if (!s) return;
+  s.obj.remove(s.label);
+  s.label.element.remove();
+  scene.remove(s.obj);
+  s.obj.userData.dispose();
+  statues.delete(id);
+}
+
+function clearPeople() {
   for (const id of [...avatars.keys()]) removeAvatar(id);
+  for (const id of [...statues.keys()]) removeStatue(id);
+  residents.clear();
+  statueQueue.length = 0;
 }
 
 function showOnline() {
   const n = avatars.size;
-  ui.online.textContent = `${n} in the hangout`;
+  ui.online.textContent = `${n} here now`;
   ui.online.hidden = n === 0;
 }
 
@@ -104,7 +149,7 @@ ui.action.addEventListener('click', () => overlayAction?.());
 
 function showSignIn() {
   room.stop();
-  clearAvatars();
+  clearPeople();
   myId = null;
   showOnline();
   showOverlay(
@@ -120,9 +165,11 @@ function showSignIn() {
 const room = new LiveRoom({
   onMessage(msg) {
     if (msg.type === 'welcome') {
-      clearAvatars();
+      clearPeople();
       myId = msg.you;
+      for (const r of msg.seats) residents.set(r.id, { name: r.name, style: r.style, seat: r.seat });
       msg.players.forEach(addAvatar);
+      for (const id of residents.keys()) seat(id);
       ui.overlay.hidden = true;
       ui.status.hidden = true;
       ui.hint.hidden = false;
@@ -138,6 +185,7 @@ const room = new LiveRoom({
       avatars.get(msg.id)?.human.wave();
     } else if (msg.type === 'leave') {
       removeAvatar(msg.id);
+      seat(msg.id); // back on their bench, if they have one
     }
     showOnline();
   },
@@ -148,7 +196,7 @@ const room = new LiveRoom({
   onBlocked(reason) {
     if (reason === 'replaced') {
       room.stop();
-      clearAvatars();
+      clearPeople();
       myId = null;
       showOnline();
       showOverlay('You joined from somewhere else', 'The Hangout is open in another tab or window.', 'Play here', () => {
@@ -258,6 +306,8 @@ function step(dt, t) {
   }
 
   // Everyone else glides to where they last said they were.
+  buildQueuedStatues(4); // a few benches' people per frame, so joining doesn't stutter
+
   for (const [id, a] of avatars) {
     if (id !== myId) {
       const p = a.human.root.position;

@@ -6,6 +6,32 @@ const SKY = '#bfe3f7';
 // Where the sun sits: low enough (about 11 degrees up) to be in view and cast long afternoon shadows.
 export const SUN_DIR = new THREE.Vector3(120, 40, -160).normalize();
 
+// ---- seats: 60 places on 20 benches in two rings around the path, all facing the middle.
+// Seat numbers come from the server; everyone computes the same spots from them.
+export const SEAT_HEIGHT = 0.49;
+const BENCH_WIDTH = 2.0;
+const SEATS_PER_BENCH = 3;
+const BENCHES = [];
+for (const [count, radius, turn] of [[8, 12.4, 0.2], [12, 16.8, 0]]) {
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2 + turn;
+    const position = new THREE.Vector3(Math.cos(a) * radius, 0, Math.sin(a) * radius);
+    BENCHES.push({ position, ry: Math.atan2(-position.x, -position.z) }); // +z faces the middle
+  }
+}
+export const SEAT_COUNT = BENCHES.length * SEATS_PER_BENCH;
+
+/** Where seat n is: sit (on the bench), stand (just in front of it) and ry (facing the middle). */
+export function seatSpot(n) {
+  const b = BENCHES[Math.floor(n / SEATS_PER_BENCH) % BENCHES.length];
+  const slot = ((n % SEATS_PER_BENCH) - 1) * 0.62;
+  const along = (forward) => {
+    const v = new THREE.Vector3(slot, 0, forward).applyAxisAngle(new THREE.Vector3(0, 1, 0), b.ry);
+    return v.add(b.position);
+  };
+  return { sit: along(0.04), stand: along(0.95), ry: b.ry };
+}
+
 function seeded(seed) {
   return () => {
     seed = (seed + 0x6d2b79f5) | 0;
@@ -96,30 +122,31 @@ export function buildPark(scene) {
   path.position.y = 0.01;
   path.receiveShadow = true;
   scene.add(path);
+  // Benches: one seat for each start.ng user who has one (see seatSpot).
   const wood = new THREE.MeshStandardMaterial({ color: '#8a5a35', roughness: 0.8 });
   const metal = new THREE.MeshStandardMaterial({ color: '#2f3a2c', roughness: 0.5, metalness: 0.4 });
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2 + 0.3;
+  for (const b of BENCHES) {
     const bench = new THREE.Group();
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.08, 0.45), wood);
-    seat.position.y = 0.45;
-    const back = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.4, 0.06), wood);
-    back.position.set(0, 0.72, -0.2);
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(BENCH_WIDTH, 0.08, 0.5), wood);
+    seat.position.y = SEAT_HEIGHT - 0.04;
+    const back = new THREE.Mesh(new THREE.BoxGeometry(BENCH_WIDTH, 0.42, 0.06), wood);
+    back.position.set(0, 0.74, -0.24);
+    back.rotation.x = -0.12;
     bench.add(seat, back);
-    for (const side of [-0.7, 0.7]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.45, 0.4), metal);
-      leg.position.set(side, 0.22, 0);
+    for (const side of [-1, 1]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, SEAT_HEIGHT - 0.04, 0.44), metal);
+      leg.position.set(side * (BENCH_WIDTH / 2 - 0.12), (SEAT_HEIGHT - 0.04) / 2, 0);
       bench.add(leg);
     }
     bench.traverse((o) => { o.castShadow = o.receiveShadow = true; });
-    bench.position.set(Math.cos(a) * 11.6, 0, Math.sin(a) * 11.6);
-    bench.lookAt(0, 0, 0);
+    bench.position.copy(b.position);
+    bench.rotation.y = b.ry;
     scene.add(bench);
   }
 
   // Trees: a few near the path, a loose ring further out, and woods at the edge.
   const spots = [];
-  for (let i = 0; i < 8; i++) spots.push([between(14, 24), rand() * Math.PI * 2]);
+  for (let i = 0; i < 8; i++) spots.push([between(21, 27), rand() * Math.PI * 2]);
   for (let i = 0; i < 45; i++) spots.push([between(28, 55), rand() * Math.PI * 2]);
   for (let i = 0; i < 80; i++) spots.push([between(60, 110), rand() * Math.PI * 2]);
   const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.16, 0.24, 2.2, 7).translate(0, 1.1, 0), new THREE.MeshStandardMaterial({ color: '#6b4a2f', roughness: 0.9 }), spots.length);

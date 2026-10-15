@@ -1,6 +1,7 @@
 // The start.ng character: the same 3D person as the start.ng profile (startng-fe src/three/human.ts),
 // plus walking. In metres, about 1.7-1.75 m tall, facing +z. Keep the look in step with start.ng.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const PI = Math.PI;
 const SHOE = '#2a211b';
@@ -77,9 +78,10 @@ function curlyGeometry(r, amount) {
 
 /**
  * Builds a character. Returns { root, head, update(t), setWalking(speed01), wave(), dispose() }.
- * Missing or unknown style values fall back to sensible defaults.
+ * Missing or unknown style values fall back to sensible defaults. With { sitting: true } it sits,
+ * hips at bench height (root on the ground, in front of the bench back).
  */
-export function buildHuman(style) {
+export function buildHuman(style, { sitting = false } = {}) {
   const s = { body: 'female', primaryColor: '#9aa3b5', secondaryColor: '#4a4f60', skinColor: '#c68642', hairColor: '#17120f', hair: 'short', hat: 'none', accessory: 'none', ...style };
   const female = s.body === 'female';
   const geos = [];
@@ -390,6 +392,21 @@ export function buildHuman(style) {
       arms[1].elbow.rotation.z = 0;
     }
     for (let i = 0; i < sw.length; i++) sw[i].rotation.x = -0.08 + Math.sin(t * 1.3 + i * 0.3) * 0.04 - head.rotation.x + w * 0.25;
+
+    if (sitting) {
+      // On the bench: thighs forward, shins down, hands resting on the knees, leaning back a little.
+      hips.position.set(0, 0.55, 0.02);
+      hips.rotation.set(0, 0, 0);
+      spine.rotation.set(-0.06 + Math.sin(t * 1.5) * 0.01, 0, 0);
+      legs.forEach(({ hip, knee }, i) => {
+        hip.rotation.set(-1.45, 0, i === 0 ? -0.06 : 0.06);
+        knee.rotation.x = 1.4;
+      });
+      arms.forEach(({ sh, elbow }, i) => {
+        sh.rotation.set(-0.45, 0, (i === 0 ? -1 : 1) * restArm * 0.6);
+        elbow.rotation.set(-1.0, 0, 0);
+      });
+    }
   }
   update(0);
 
@@ -409,4 +426,40 @@ export function buildHuman(style) {
       mats.forEach((m) => m.dispose());
     },
   };
+}
+
+
+/**
+ * Someone who isn't in the Hangout: their character sitting on a bench, as a still model.
+ * It's merged into one mesh per material (a few draw calls instead of ~150), so 60 of them stay
+ * fast. Returns a Group; call group.userData.dispose() when removing it.
+ */
+export function buildStatue(style) {
+  const human = buildHuman(style, { sitting: true });
+  human.update(1.3);
+  human.root.updateMatrixWorld(true);
+  const byMaterial = new Map();
+  human.root.traverse((o) => {
+    if (!o.isMesh) return;
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    for (const name of Object.keys(g.attributes)) if (name !== 'position' && name !== 'normal') g.deleteAttribute(name);
+    g.applyMatrix4(o.matrixWorld);
+    if (!byMaterial.has(o.material)) byMaterial.set(o.material, []);
+    byMaterial.get(o.material).push(g);
+  });
+  const group = new THREE.Group();
+  for (const [material, parts] of byMaterial) {
+    const mesh = new THREE.Mesh(mergeGeometries(parts), material.clone());
+    parts.forEach((g) => g.dispose());
+    mesh.castShadow = true;
+    group.add(mesh);
+  }
+  human.dispose();
+  group.userData.dispose = () => group.traverse((o) => {
+    if (o.isMesh) {
+      o.geometry.dispose();
+      o.material.dispose();
+    }
+  });
+  return group;
 }

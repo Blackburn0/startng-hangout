@@ -5,6 +5,7 @@ start.ng's own game: an open park where everyone who's signed in can hang out to
 - **Your avatar is your start.ng character**, the same 3D person as on your start.ng profile, with your start.ng name above your head.
 - **Multiplayer:** everyone in the Hangout sees each other walk around, live.
 - **Wave** with Space. More interactions can be added next to it.
+- **Everyone on start.ng has a seat.** The 60 most recently active start.ng users each get a bench seat. Anyone who isn't in the Hangout sits on their bench; when they come in, they stand up from it, and only they can move their character. When they leave, they're back on their bench.
 - Signing in with start.ng is required to come in.
 
 Controls: **WASD** or arrows to walk, **Shift** to run, **drag** to look around, **scroll** to zoom, **Space** to wave.
