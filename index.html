@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Hangout · start.ng</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="src/styles.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <header class="hud">
+    <a class="brand" href="https://start.ng"><b>start<span>.ng</span></b> hangout</a>
+    <span class="online" id="online" hidden></span>
+  </header>
+  <p class="status" id="status" hidden></p>
+  <p class="hint" id="hint" hidden><b>WASD</b> or arrows to walk · <b>Shift</b> to run · <b>drag</b> to look · <b>Space</b> to wave</p>
+
+  <div class="overlay" id="overlay">
+    <div class="panel">
+      <h1 id="title">The Hangout</h1>
+      <p id="message">Coming in…</p>
+      <button id="action" hidden></button>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
